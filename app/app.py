@@ -19,11 +19,11 @@ def predict():
     prediction = dummy_predict(sample_input)
     return jsonify({'prediction': prediction})
 
-@app.route('/health', methods=['GET'])
-def health():
-    return jsonify({'status': 'healthy'}), 200
-    # 👇 Uncomment to simulate failure:
-    # return jsonify({'status': 'unhealthy'}), 500
+# @app.route('/health', methods=['GET'])
+# def health():
+#     return jsonify({'status': 'healthy'}), 200
+    👇 Uncomment to simulate failure:
+    return jsonify({'status': 'unhealthy'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
