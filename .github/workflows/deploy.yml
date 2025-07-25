@@ -3,7 +3,7 @@ name: Deploy Flask ML App with Health Check and Rollback
 on:
   push:
     branches: [ main ]            # Auto deploy on code push to main
-  workflow_dispatch:              # Allow manual trigger via GitHub UI
+  workflow_dispatch:              # Manual trigger via GitHub UI
 
 jobs:
   deploy:
@@ -53,8 +53,8 @@ jobs:
 
       - name: 🚀 Restart Flask App on EC2
         run: |
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} << 'EOF'
-            echo '🛑 Stopping old app (if any)...'
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
+            echo '🛑 Killing any existing Flask app...'
             pkill -f app.py || echo 'No old app running.'
 
             echo '🚀 Starting new Flask app...'
@@ -63,7 +63,7 @@ jobs:
             disown
             sleep 5
             echo '✅ Flask app started.'
-          EOF
+          "
 
       - name: 📄 Check App Logs After Start
         run: |
@@ -89,7 +89,7 @@ jobs:
         if: failure()
         run: |
           echo "❌ Health check failed. Rolling back..."
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} << 'EOF'
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
             if [ -d ~/mlapp-backup ]; then
               echo '🔁 Restoring previous version...'
               rm -rf ~/mlapp
@@ -108,4 +108,4 @@ jobs:
             else
               echo '❌ No backup found. Cannot rollback.'
             fi
-          EOF || echo '⚠️ SSH or rollback step failed.'
+          " || echo '⚠️ SSH or rollback step failed.'
