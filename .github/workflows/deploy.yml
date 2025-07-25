@@ -2,8 +2,8 @@ name: Deploy Flask ML App with Health Check and Rollback
 
 on:
   push:
-    branches: [ main ]      # ✅ Auto-trigger on push to main
-  workflow_dispatch:        # ✅ Allow manual run from GitHub UI
+    branches: [ main ]            # ✅ Auto-trigger on code push
+  workflow_dispatch:              # ✅ Manual trigger via GitHub UI
 
 jobs:
   deploy:
@@ -67,7 +67,7 @@ jobs:
             cd ~/mlapp &&
             nohup python3 app.py > output.log 2>&1 &
 
-            sleep 5
+            sleep 10
 
             echo '📄 Output log:'
             if [ -f output.log ]; then
@@ -76,9 +76,6 @@ jobs:
               echo '❌ No output.log - App may have failed.'
             fi
           "
-
-      - name: Wait for App to Start
-        run: sleep 10
 
       - name: Run Health Check
         run: |
@@ -95,15 +92,25 @@ jobs:
           echo "❌ Health check failed. Rolling back..."
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
             if [ -d ~/mlapp-backup ]; then
+              echo '🔁 Rolling back to previous version...'
               rm -rf ~/mlapp
               mv ~/mlapp-backup ~/mlapp
-              pkill -f app.py || echo 'No old app running'
+
+              pkill -f app.py || echo 'No old app to kill'
+
               cd ~/mlapp &&
               nohup python3 app.py > output.log 2>&1 &
-              sleep 5
+
+              sleep 10
+
+              echo '🧾 Version after rollback:'
+              grep version app.py || echo 'No version info'
+
               echo '🔁 Rechecking health after rollback...'
-              curl --fail http://localhost:5000/health && echo '✅ Rollback successful.' || echo '❌ Rollback health check failed.'
+              curl --fail http://127.0.0.1:5000/health \
+                && echo '✅ Rollback successful.' \
+                || echo '❌ Rollback health check failed.'
             else
               echo '❌ No backup found to rollback.'
             fi
-          "
+          " || echo '❌ SSH or rollback failed.'
