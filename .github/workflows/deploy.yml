@@ -2,8 +2,8 @@ name: Deploy Flask ML App with Health Check and Rollback
 
 on:
   push:
-    branches: [ main ]             # Auto-trigger on main branch push
-  workflow_dispatch:               # Manual trigger from GitHub UI
+    branches: [ main ]             # Auto-trigger on push
+  workflow_dispatch:               # Allow manual trigger
 
 jobs:
   deploy:
@@ -54,25 +54,25 @@ jobs:
       - name: 🚀 Restart Flask App on EC2
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
-            echo '🛑 Killing any existing Flask app...'
-            pkill -f app.py || echo 'No old app running.'
+            echo '🛑 Killing existing Flask app...'
+            pkill -f app.py || echo 'No app running.'
 
-            echo '🚀 Starting new Flask app...'
+            echo '🚀 Starting new Flask app using setsid...'
             cd ~/mlapp
-            nohup python3 app.py > output.log 2>&1 < /dev/null &
-            disown
-            sleep 5
-            echo '✅ Flask app started.'
+            setsid python3 app.py > output.log 2>&1 < /dev/null &
+
+            echo '✅ Flask app launched in background.'
           "
 
       - name: 📄 Check App Logs After Start
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
+            sleep 5
+            echo '📄 Showing output.log...'
             if [ -f ~/mlapp/output.log ]; then
-              echo '📄 Last 20 lines from output.log:'
               tail -n 20 ~/mlapp/output.log
             else
-              echo '❌ output.log not found. App may not have started.'
+              echo '❌ output.log not found.'
             fi
           "
 
@@ -85,20 +85,19 @@ jobs:
         if: success()
         run: echo "✅ Deployment succeeded. Health check passed."
 
-      - name: 🔁 Rollback on Health Check Failure
+      - name: 🔁 Rollback if Health Fails
         if: failure()
         run: |
-          echo "❌ Health check failed. Rolling back..."
+          echo "❌ Health check failed. Starting rollback..."
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
             if [ -d ~/mlapp-backup ]; then
-              echo '🔁 Restoring previous version...'
+              echo '🔁 Restoring from backup...'
               rm -rf ~/mlapp
               mv ~/mlapp-backup ~/mlapp
               pkill -f app.py || echo 'No running app found.'
 
               cd ~/mlapp
-              nohup python3 app.py > output.log 2>&1 < /dev/null &
-              disown
+              setsid python3 app.py > output.log 2>&1 < /dev/null &
               sleep 5
 
               echo '🩺 Rechecking health after rollback...'
@@ -106,6 +105,6 @@ jobs:
                 && echo '✅ Rollback successful.' \
                 || echo '❌ Rollback health check failed.'
             else
-              echo '❌ No backup found. Cannot rollback.'
+              echo '❌ No backup available to rollback.'
             fi
-          " || echo '⚠️ SSH or rollback step failed.'
+          " || echo '⚠️ SSH or rollback failed.'
