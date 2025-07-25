@@ -2,8 +2,8 @@ name: Deploy Flask ML App with Health Check and Rollback
 
 on:
   push:
-    branches: [ main ]            # Auto deploy on code push to main
-  workflow_dispatch:              # Manual trigger via GitHub UI
+    branches: [ main ]             # Auto-trigger on main branch push
+  workflow_dispatch:               # Manual trigger from GitHub UI
 
 jobs:
   deploy:
@@ -72,7 +72,7 @@ jobs:
               echo '📄 Last 20 lines from output.log:'
               tail -n 20 ~/mlapp/output.log
             else
-              echo '❌ No output.log found. App may not have started.'
+              echo '❌ output.log not found. App may not have started.'
             fi
           "
 
