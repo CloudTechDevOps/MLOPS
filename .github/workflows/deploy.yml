@@ -2,8 +2,8 @@ name: Deploy Flask ML App with Health Check and Rollback
 
 on:
   push:
-    branches: [ main ]            # ✅ Auto-deploy on push
-  workflow_dispatch:              # ✅ Manual trigger option
+    branches: [ main ]            # ✅ Auto-deploy on push to main
+  workflow_dispatch:              # ✅ Manual trigger from GitHub UI
 
 jobs:
   deploy:
@@ -107,4 +107,4 @@ jobs:
             else
               echo '❌ No backup found to rollback.'
             fi
-          " || echo '❌ SSH command failed during rollback.'
+          " || echo '❌ SSH or rollback failed.'
