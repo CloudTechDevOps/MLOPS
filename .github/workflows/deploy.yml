@@ -1,9 +1,9 @@
-
 name: Deploy Flask ML App with Health Check
 
 on:
   push:
     branches: [ main ]
+  workflow_dispatch:   # Optional: allows manual trigger
 
 jobs:
   deploy:
@@ -21,15 +21,17 @@ jobs:
 
       - name: Copy App Files to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "mkdir -p ~/mlapp"
-          scp -r app/* ec2-user@${{ secrets.EC2_HOST }}:~/mlapp/
+          ssh -o StrictHostKeyChecking=no root@${{ secrets.EC2_HOST }} "mkdir -p ~/mlapp"
+          scp -r app/* root@${{ secrets.EC2_HOST }}:~/mlapp/
 
       - name: Start Flask App on EC2
         run: |
-          ssh ec2-user@${{ secrets.EC2_HOST }} "
+          ssh root@${{ secrets.EC2_HOST }} "
             cd ~/mlapp &&
             pip3 install -r requirements.txt &&
             nohup python3 app.py > output.log 2>&1 &
+            sleep 3 &&
+            tail -n 20 output.log
           "
 
       - name: Wait for App to Start
