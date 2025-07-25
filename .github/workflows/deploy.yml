@@ -2,8 +2,8 @@ name: Deploy Flask ML App with Health Check and Rollback
 
 on:
   push:
-    branches: [ main ]            # ✅ Auto-trigger on code push
-  workflow_dispatch:              # ✅ Manual trigger via GitHub UI
+    branches: [ main ]            # ✅ Auto-deploy on push
+  workflow_dispatch:              # ✅ Manual trigger option
 
 jobs:
   deploy:
@@ -23,11 +23,11 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "
             if [ -d ~/mlapp ]; then
-              echo '📦 Backing up current app to ~/mlapp-backup'
+              echo '📦 Backing up ~/mlapp to ~/mlapp-backup'
               rm -rf ~/mlapp-backup
               cp -r ~/mlapp ~/mlapp-backup
             else
-              echo 'ℹ️ No existing app to backup'
+              echo 'ℹ️ No existing app found to backup'
             fi
           "
 
@@ -51,40 +51,38 @@ jobs:
             pip3 install -r requirements.txt
           "
 
-      - name: Restart Flask App (Clean Start + Version Info)
+      - name: Kill and Restart Flask App in Background
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
-            echo '🛑 Killing any old app...'
-            pkill -f app.py || echo 'No old app running.'
+            echo '🛑 Killing any existing Flask app...'
+            pkill -f app.py || echo 'No existing process'
 
-            echo '📁 App files:'
-            ls -l ~/mlapp
-
-            echo '🧾 Version Info:'
-            grep version ~/mlapp/app.py || echo 'No version tag in app.py'
-
-            echo '🚀 Starting app...'
+            echo '🚀 Starting new app in background...'
             cd ~/mlapp &&
-            nohup python3 app.py > output.log 2>&1 &
+            nohup python3 app.py > output.log 2>&1 < /dev/null &
+            echo '✅ Flask app started.'
+          "
 
-            sleep 10
-
-            echo '📄 Output log:'
-            if [ -f output.log ]; then
-              tail -n 20 output.log
+      - name: Check App Logs After Start
+        run: |
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
+            sleep 5
+            echo '📄 Checking output.log...'
+            if [ -f ~/mlapp/output.log ]; then
+              tail -n 20 ~/mlapp/output.log
             else
-              echo '❌ No output.log - App may have failed.'
+              echo '❌ output.log not found. App may have failed to start.'
             fi
           "
 
       - name: Run Health Check
         run: |
-          echo "🩺 Performing health check..."
+          echo "🩺 Checking app health..."
           curl --fail http://${{ secrets.EC2_HOST }}:5000/health
 
       - name: Notify on Success
         if: success()
-        run: echo "✅ Deployment successful. Health check passed."
+        run: echo "✅ Deployment succeeded. Health check passed."
 
       - name: Rollback on Failure
         if: failure()
@@ -92,25 +90,21 @@ jobs:
           echo "❌ Health check failed. Rolling back..."
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
             if [ -d ~/mlapp-backup ]; then
-              echo '🔁 Rolling back to previous version...'
+              echo '🔁 Restoring from backup...'
               rm -rf ~/mlapp
               mv ~/mlapp-backup ~/mlapp
 
-              pkill -f app.py || echo 'No old app to kill'
+              pkill -f app.py || echo 'No app to stop'
 
               cd ~/mlapp &&
-              nohup python3 app.py > output.log 2>&1 &
+              nohup python3 app.py > output.log 2>&1 < /dev/null &
+              sleep 5
 
-              sleep 10
-
-              echo '🧾 Version after rollback:'
-              grep version app.py || echo 'No version info'
-
-              echo '🔁 Rechecking health after rollback...'
+              echo '🩺 Rechecking rollback health...'
               curl --fail http://127.0.0.1:5000/health \
                 && echo '✅ Rollback successful.' \
                 || echo '❌ Rollback health check failed.'
             else
               echo '❌ No backup found to rollback.'
             fi
-          " || echo '❌ SSH or rollback failed.'
+          " || echo '❌ SSH command failed during rollback.'
