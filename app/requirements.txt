@@ -1,4 +1,3 @@
-
-flas
-jobli
-nump
+flask
+joblib
+numpy
