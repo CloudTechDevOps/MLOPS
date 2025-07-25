@@ -22,7 +22,7 @@ jobs:
       - name: Copy App Files to EC2
         run: |
           ssh -o StrictHostKeyChecking=no root@${{ secrets.EC2_HOST }} "mkdir -p ~/mlapp"
-          scp -r app/* root@${{ secrets.EC2_HOST }}:~/mlapp/
+          scp -r app/* ec2-user@${{ secrets.EC2_HOST }}:~/mlapp/
 
       - name: Start Flask App on EC2
         run: |
