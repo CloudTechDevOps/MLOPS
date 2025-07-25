@@ -1,13 +1,13 @@
-name: Deploy Flask ML App with Health Check (with Rollback)
+name: Deploy Flask ML App with Health Check and Rollback
 
 on:
   push:
-    branches: [ main ]
-  workflow_dispatch:  # manual trigger
+    branches: [ main ]      # ✅ Auto-trigger on push to main
+  workflow_dispatch:        # ✅ Allow manual run from GitHub UI
 
 jobs:
   deploy:
-    name: Deploy to EC2, Health Check, and Rollback on Failure
+    name: Deploy to EC2 with Health Check and Rollback
     runs-on: ubuntu-latest
 
     steps:
@@ -19,7 +19,6 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      # ------------ REAL ROLLBACK SUPPORT: take a backup of the last good version ------------
       - name: Backup existing app on EC2
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "
@@ -32,11 +31,12 @@ jobs:
             fi
           "
 
-      - name: Copy new app files to EC2
+      - name: Copy app code to EC2
         run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "mkdir -p ~/mlapp"
           scp -o StrictHostKeyChecking=no -r app/* ec2-user@${{ secrets.EC2_HOST }}:~/mlapp/
 
-      - name: Install Python & pip on EC2
+      - name: Install Python & pip
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
             sudo yum install -y python3 &&
@@ -51,26 +51,29 @@ jobs:
             pip3 install -r requirements.txt
           "
 
-      - name: Start Flask App (with debug info)
+      - name: Restart Flask App (Clean Start + Version Info)
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
-            echo '📁 Listing ~/mlapp directory:' &&
+            echo '🛑 Killing any old app...'
+            pkill -f app.py || echo 'No old app running.'
+
+            echo '📁 App files:'
             ls -l ~/mlapp
 
-            echo '🐍 Python version:' &&
-            python3 --version
+            echo '🧾 Version Info:'
+            grep version ~/mlapp/app.py || echo 'No version tag in app.py'
 
-            echo '🚀 Starting Flask App...' &&
+            echo '🚀 Starting app...'
             cd ~/mlapp &&
             nohup python3 app.py > output.log 2>&1 &
 
             sleep 5
 
-            echo '📄 output.log (if exists):' &&
+            echo '📄 Output log:'
             if [ -f output.log ]; then
-              tail -n 50 output.log
+              tail -n 20 output.log
             else
-              echo '❌ output.log not found - app may have crashed.'
+              echo '❌ No output.log - App may have failed.'
             fi
           "
 
@@ -79,28 +82,28 @@ jobs:
 
       - name: Run Health Check
         run: |
-          echo "🔎 Running health check..."
+          echo "🩺 Performing health check..."
           curl --fail http://${{ secrets.EC2_HOST }}:5000/health
 
       - name: Notify on Success
         if: success()
-        run: echo "✅ Deployment succeeded and health check passed."
+        run: echo "✅ Deployment successful. Health check passed."
 
-      # ----------------- REAL ROLLBACK (not just a message) -----------------
-      - name: Rollback to previous version (on failure)
+      - name: Rollback on Failure
         if: failure()
         run: |
+          echo "❌ Health check failed. Rolling back..."
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
-            echo '⚠️ Health check failed. Rolling back to last known good version...'
             if [ -d ~/mlapp-backup ]; then
               rm -rf ~/mlapp
               mv ~/mlapp-backup ~/mlapp
+              pkill -f app.py || echo 'No old app running'
               cd ~/mlapp &&
               nohup python3 app.py > output.log 2>&1 &
-              sleep 5 &&
-              echo '🔁 Verifying rolled-back health...' &&
-              curl --fail http://localhost:5000/health && echo '✅ Rollback health OK' || echo '❌ Rollback health still failing'
+              sleep 5
+              echo '🔁 Rechecking health after rollback...'
+              curl --fail http://localhost:5000/health && echo '✅ Rollback successful.' || echo '❌ Rollback health check failed.'
             else
-              echo '❌ No backup found to rollback. Manual intervention required.'
+              echo '❌ No backup found to rollback.'
             fi
           "
