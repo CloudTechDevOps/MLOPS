@@ -1,13 +1,13 @@
-name: Deploy Flask ML App with Health Check
+name: Deploy Flask ML App with Health Check (with Rollback)
 
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # Optional: manual trigger from GitHub UI
+  workflow_dispatch:  # manual trigger
 
 jobs:
   deploy:
-    name: Deploy to EC2 and Run Health Check
+    name: Deploy to EC2, Health Check, and Rollback on Failure
     runs-on: ubuntu-latest
 
     steps:
@@ -19,10 +19,22 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      - name: Copy App Files to EC2
+      # ------------ REAL ROLLBACK SUPPORT: take a backup of the last good version ------------
+      - name: Backup existing app on EC2
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "mkdir -p ~/mlapp"
-          scp -r app/* ec2-user@${{ secrets.EC2_HOST }}:~/mlapp/
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "
+            if [ -d ~/mlapp ]; then
+              echo '📦 Backing up current app to ~/mlapp-backup'
+              rm -rf ~/mlapp-backup
+              cp -r ~/mlapp ~/mlapp-backup
+            else
+              echo 'ℹ️ No existing app to backup'
+            fi
+          "
+
+      - name: Copy new app files to EC2
+        run: |
+          scp -o StrictHostKeyChecking=no -r app/* ec2-user@${{ secrets.EC2_HOST }}:~/mlapp/
 
       - name: Install Python & pip on EC2
         run: |
@@ -39,7 +51,7 @@ jobs:
             pip3 install -r requirements.txt
           "
 
-      - name: Start Flask App with Debugging
+      - name: Start Flask App (with debug info)
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
             echo '📁 Listing ~/mlapp directory:' &&
@@ -54,11 +66,11 @@ jobs:
 
             sleep 5
 
-            echo '📄 Checking output.log:' &&
+            echo '📄 output.log (if exists):' &&
             if [ -f output.log ]; then
-              cat output.log
+              tail -n 50 output.log
             else
-              echo '❌ output.log not found - app likely crashed.'
+              echo '❌ output.log not found - app may have crashed.'
             fi
           "
 
@@ -67,12 +79,28 @@ jobs:
 
       - name: Run Health Check
         run: |
+          echo "🔎 Running health check..."
           curl --fail http://${{ secrets.EC2_HOST }}:5000/health
 
       - name: Notify on Success
         if: success()
         run: echo "✅ Deployment succeeded and health check passed."
 
-      - name: Auto Rollback Simulation (optional)
+      # ----------------- REAL ROLLBACK (not just a message) -----------------
+      - name: Rollback to previous version (on failure)
         if: failure()
-        run: echo "❌ Deployment failed. Please rollback to previous version."
+        run: |
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
+            echo '⚠️ Health check failed. Rolling back to last known good version...'
+            if [ -d ~/mlapp-backup ]; then
+              rm -rf ~/mlapp
+              mv ~/mlapp-backup ~/mlapp
+              cd ~/mlapp &&
+              nohup python3 app.py > output.log 2>&1 &
+              sleep 5 &&
+              echo '🔁 Verifying rolled-back health...' &&
+              curl --fail http://localhost:5000/health && echo '✅ Rollback health OK' || echo '❌ Rollback health still failing'
+            else
+              echo '❌ No backup found to rollback. Manual intervention required.'
+            fi
+          "
