@@ -3,7 +3,7 @@ name: Deploy Flask ML App with Health Check
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # Optional: allows manual trigger from GitHub UI
+  workflow_dispatch:  # Allows manual trigger from GitHub UI
 
 jobs:
   deploy:
@@ -24,15 +24,25 @@ jobs:
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "mkdir -p ~/mlapp"
           scp -r app/* ec2-user@${{ secrets.EC2_HOST }}:~/mlapp/
 
-      - name: Start Flask App on EC2
+      - name: Install Python & pip on EC2
         run: |
-          ssh ec2-user@${{ secrets.EC2_HOST }} "
-            # Ensure Python and pip are installed
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
             sudo yum install -y python3 &&
             python3 -m ensurepip --upgrade &&
-            pip3 install --upgrade pip setuptools &&
+            pip3 install --upgrade pip setuptools
+          "
+
+      - name: Install Python dependencies
+        run: |
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
             cd ~/mlapp &&
-            pip3 install -r requirements.txt &&
+            pip3 install -r requirements.txt
+          "
+
+      - name: Start Flask App
+        run: |
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
+            cd ~/mlapp &&
             nohup python3 app.py > output.log 2>&1 &
             sleep 5 &&
             tail -n 20 output.log
