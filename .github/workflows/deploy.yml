@@ -3,7 +3,7 @@ name: Deploy Flask ML App with Health Check
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # Allows manual trigger from GitHub UI
+  workflow_dispatch:  # Optional: manual trigger from GitHub UI
 
 jobs:
   deploy:
@@ -39,13 +39,27 @@ jobs:
             pip3 install -r requirements.txt
           "
 
-      - name: Start Flask App
+      - name: Start Flask App with Debugging
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
+            echo '📁 Listing ~/mlapp directory:' &&
+            ls -l ~/mlapp
+
+            echo '🐍 Python version:' &&
+            python3 --version
+
+            echo '🚀 Starting Flask App...' &&
             cd ~/mlapp &&
             nohup python3 app.py > output.log 2>&1 &
-            sleep 5 &&
-            tail -n 20 output.log
+
+            sleep 5
+
+            echo '📄 Checking output.log:' &&
+            if [ -f output.log ]; then
+              cat output.log
+            else
+              echo '❌ output.log not found - app likely crashed.'
+            fi
           "
 
       - name: Wait for App to Start
