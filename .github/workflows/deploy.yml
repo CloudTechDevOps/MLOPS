@@ -3,7 +3,7 @@ name: Deploy Flask ML App with Health Check (with Rollback)
 on:
   push:
     branches: [ main ]
-  workflow_dispatch:  # manual trigger
+  workflow_dispatch:
 
 jobs:
   deploy:
@@ -19,7 +19,6 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      # ------------ REAL ROLLBACK SUPPORT: take a backup of the last good version ------------
       - name: Backup existing app on EC2
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "
@@ -31,9 +30,12 @@ jobs:
               echo 'ℹ️ No existing app to backup'
             fi
           "
+
       - name: Copy new app files to EC2
         run: |
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "mkdir -p ~/mlapp"
           scp -o StrictHostKeyChecking=no -r app/* ec2-user@${{ secrets.EC2_HOST }}:~/mlapp/
+
       - name: Install Python & pip on EC2
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
@@ -41,30 +43,33 @@ jobs:
             python3 -m ensurepip --upgrade &&
             pip3 install --upgrade pip setuptools
           "
+
       - name: Install Python dependencies
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
             cd ~/mlapp &&
             pip3 install -r requirements.txt
           "
-      - name: Start Flask App (with debug info)
+
+      - name: Stop and Start Flask App
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
-            echo '📁 Listing ~/mlapp directory:' &&
-            ls -l ~/mlapp
-            echo '🐍 Python version:' &&
-            python3 --version
-            echo '🚀 Starting Flask App...' &&
-            cd ~/mlapp &&
-            nohup python3 app.py > output.log 2>&1 &
+            echo '🛑 Killing any process on port 5000...'
+            PID=\$(lsof -t -i:5000) && kill -9 \$PID || echo 'Nothing running on port 5000.'
+
+            echo '🚀 Starting new Flask app...'
+            cd ~/mlapp
+            nohup python3 app.py > output.log 2>&1 < /dev/null & disown
             sleep 5
-            echo '📄 output.log (if exists):' &&
-            if [ -f output.log ]; then
-              tail -n 50 output.log
+
+            echo '📄 Checking logs...'
+            if [ -f ~/mlapp/output.log ]; then
+              tail -n 20 ~/mlapp/output.log
             else
               echo '❌ output.log not found - app may have crashed.'
             fi
           "
+
       - name: Wait for App to Start
         run: sleep 10
 
@@ -72,11 +77,11 @@ jobs:
         run: |
           echo "🔎 Running health check..."
           curl --fail http://${{ secrets.EC2_HOST }}:5000/health
+
       - name: Notify on Success
         if: success()
         run: echo "✅ Deployment succeeded and health check passed."
 
-      # ----------------- REAL ROLLBACK (not just a message) -----------------
       - name: Rollback to previous version (on failure)
         if: failure()
         run: |
@@ -85,12 +90,15 @@ jobs:
             if [ -d ~/mlapp-backup ]; then
               rm -rf ~/mlapp
               mv ~/mlapp-backup ~/mlapp
-              cd ~/mlapp &&
-              nohup python3 app.py > output.log 2>&1 &
-              sleep 5 &&
-              echo '🔁 Verifying rolled-back health...' &&
-              curl --fail http://localhost:5000/health && echo '✅ Rollback health OK' || echo '❌ Rollback health still failing'
+              PID=\$(lsof -t -i:5000) && kill -9 \$PID || echo 'Nothing running on port 5000'
+              cd ~/mlapp
+              nohup python3 app.py > output.log 2>&1 < /dev/null & disown
+              sleep 5
+              echo '🔁 Verifying rollback health...'
+              curl --fail http://localhost:5000/health \
+                && echo '✅ Rollback succeeded' \
+                || echo '❌ Rollback health check failed'
             else
-              echo '❌ No backup found to rollback. Manual intervention required.'
+              echo '❌ No backup found to rollback. Manual action required.'
             fi
           "
