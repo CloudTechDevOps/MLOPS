@@ -11,7 +11,7 @@ def dummy_predict(x):
 
 @app.route('/')
 def index():
-    return "Welcome to the ML Appp nareshit"
+    return "Welcome to the ML Appp nareshit2"
 
 @app.route('/predict', methods=['GET'])
 def predict():
