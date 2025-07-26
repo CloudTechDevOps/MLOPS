@@ -6,12 +6,12 @@ import numpy as np
 app = Flask(__name__)
 
 # Dummy ML model (replace with real joblib model if needed)
-def dummy_predict(x):
-    return "positive" if sum(x) > 0 else "negative"
+# def dummy_predict(x):
+#     return "positive" if sum(x) > 0 else "negative"
 
 @app.route('/')
 def index():
-    return "Welcome to the ML Appp vardhan"
+    return "Welcome to the ML Appp vardhan12"
 
 @app.route('/predict', methods=['GET'])
 def predict():
@@ -21,9 +21,9 @@ def predict():
 
 @app.route('/health', methods=['GET'])
 def health():
-    #return jsonify({'status': 'healthy'}), 200
+    return jsonify({'status': 'healthy'}), 200
     #👇 Uncomment to simulate failure:
-    return jsonify({'status': 'unhealthy'}), 500
+    # return jsonify({'status': 'unhealthy'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
