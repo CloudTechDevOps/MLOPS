@@ -11,94 +11,100 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout Code
+      - name: 📦 Checkout Code
         uses: actions/checkout@v3
 
-      - name: Set up SSH key
+      - name: 🔐 Set up SSH key
         uses: webfactory/ssh-agent@v0.8.0
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      - name: Backup existing app on EC2
+      - name: 🧰 Backup Existing App on EC2
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} '
             if [ -d ~/mlapp ]; then
-              echo '📦 Backing up current app to ~/mlapp-backup'
+              echo "📁 Backing up ~/mlapp to ~/mlapp-backup"
               rm -rf ~/mlapp-backup
               cp -r ~/mlapp ~/mlapp-backup
             else
-              echo 'ℹ️ No existing app to backup'
+              echo "ℹ️ No existing app to backup"
             fi
-          "
+          '
 
-      - name: Copy new app files to EC2
+      - name: 🚚 Upload New App Code to EC2
         run: |
-          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} "mkdir -p ~/mlapp"
+          ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} 'mkdir -p ~/mlapp'
           scp -o StrictHostKeyChecking=no -r app/* ec2-user@${{ secrets.EC2_HOST }}:~/mlapp/
 
-      - name: Install Python & pip on EC2
+      - name: 🐍 Install Python & pip on EC2
         run: |
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
             sudo yum install -y python3 &&
             python3 -m ensurepip --upgrade &&
             pip3 install --upgrade pip setuptools
-          "
+          '
 
-      - name: Install Python dependencies
+      - name: 📦 Install Python Dependencies
         run: |
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
             cd ~/mlapp &&
             pip3 install -r requirements.txt
-          "
+          '
 
-      - name: Stop and Start Flask App
+      - name: 🚀 Stop Old Flask App and Start New
         run: |
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
-            echo '🛑 Killing any process on port 5000...'
-            PID=\$(lsof -t -i:5000) && kill -9 \$PID || echo 'Nothing running on port 5000.'
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
+            echo "🛑 Stopping app on port 5000..."
+            PID=$(lsof -t -i:5000) && kill -9 $PID || echo "No running app"
 
-            echo '🚀 Starting new Flask app...'
+            echo "🚀 Starting Flask app..."
             cd ~/mlapp
             nohup python3 app.py > output.log 2>&1 < /dev/null & disown
             sleep 5
 
-            echo '📄 Checking logs...'
+            echo "📄 Tail output.log:"
             if [ -f ~/mlapp/output.log ]; then
               tail -n 20 ~/mlapp/output.log
             else
-              echo '❌ output.log not found - app may have crashed.'
+              echo "❌ output.log not found."
             fi
-          "
+          '
 
-      - name: Wait for App to Start
+      - name: ⏱️ Wait for App to Boot
         run: sleep 10
 
-      - name: Run Health Check
+      - name: 🔍 Health Check
         run: |
           echo "🔎 Running health check..."
           curl --fail http://${{ secrets.EC2_HOST }}:5000/health
 
-      - name: Notify on Success
+      - name: ✅ Notify Success
         if: success()
-        run: echo "✅ Deployment succeeded and health check passed."
+        run: echo "✅ Deployment succeeded and passed health check!"
 
-      - name: Rollback to previous version (on failure)
+      - name: 🔁 Rollback on Failure
         if: failure()
         run: |
-          ssh -tt ec2-user@${{ secrets.EC2_HOST }} "
-            echo '⚠️ Health check failed. Rolling back to last known good version...'
+          echo "❌ Health check failed. Attempting rollback..."
+          ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
             if [ -d ~/mlapp-backup ]; then
+              echo "🔁 Restoring from backup..."
               rm -rf ~/mlapp
               mv ~/mlapp-backup ~/mlapp
-              PID=\$(lsof -t -i:5000) && kill -9 \$PID || echo 'Nothing running on port 5000'
+
+              echo "🛑 Killing app (port 5000)..."
+              PID=$(lsof -t -i:5000) && kill -9 $PID || echo "No app to kill"
+
+              echo "🚀 Restarting backup app..."
               cd ~/mlapp
               nohup python3 app.py > output.log 2>&1 < /dev/null & disown
               sleep 5
-              echo '🔁 Verifying rollback health...'
+
+              echo "🔎 Verifying rollback health..."
               curl --fail http://localhost:5000/health \
-                && echo '✅ Rollback succeeded' \
-                || echo '❌ Rollback health check failed'
+                && echo "✅ Rollback succeeded" \
+                || echo "❌ Rollback health check failed"
             else
-              echo '❌ No backup found to rollback. Manual action required.'
+              echo "🚫 No backup found to rollback."
             fi
-          "
+          '
