@@ -11,7 +11,7 @@ def dummy_predict(x):
 
 @app.route('/')
 def index():
-    return "Welcome to the ML Appp veera!"
+    return "Welcome to the ML Appp vee!"
 
 @app.route('/predict', methods=['GET'])
 def predict():
@@ -21,9 +21,9 @@ def predict():
 
 @app.route('/health', methods=['GET'])
 def health():
-    return jsonify({'status': 'healthy'}), 200
-    # 👇 Uncomment to simulate failure:
-    # return jsonify({'status': 'unhealthy'}), 500
+    # return jsonify({'status': 'healthy'}), 200
+    👇 Uncomment to simulate failure:
+    return jsonify({'status': 'unhealthy'}), 500
 
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
