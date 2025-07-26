@@ -11,7 +11,7 @@ app = Flask(__name__)
 
 @app.route('/')
 def index():
-    return "Welcome to the ML Appp vardhan12"
+    return "Welcome to the ML Appp aws"
 
 @app.route('/predict', methods=['GET'])
 def predict():
