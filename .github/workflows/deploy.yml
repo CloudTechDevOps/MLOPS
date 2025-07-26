@@ -23,8 +23,8 @@ jobs:
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} '
             if [ -d ~/mlapp ]; then
-             ## TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
-              BACKUP_DIR=~/mlapp-backup
+              TIMESTAMP=veera
+              BACKUP_DIR=~/mlapp-backup-$TIMESTAMP
               echo "📁 Creating backup at $BACKUP_DIR"
               cp -r ~/mlapp $BACKUP_DIR
               ln -sfn $BACKUP_DIR ~/mlapp-backup
