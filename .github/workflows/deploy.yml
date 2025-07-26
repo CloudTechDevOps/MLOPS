@@ -19,16 +19,15 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      - name: 🧰 Backup Existing App on EC2 (Only if not already backed up)
+      - name: 🧰 Backup Existing App on EC2 (timestamped)
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} '
             if [ -d ~/mlapp ]; then
-              if [ ! -d ~/mlapp-backup ]; then
-                echo "📁 Creating initial backup as ~/mlapp-backup"
-                cp -r ~/mlapp ~/mlapp-backup
-              else
-                echo "⚠️ Backup already exists. Keeping previous backup safe."
-              fi
+              TIMESTAMP=$(date +"%Y%m%d-%H%M%S")
+              BACKUP_DIR=~/mlapp-backup-$TIMESTAMP
+              echo "📁 Creating backup at $BACKUP_DIR"
+              cp -r ~/mlapp $BACKUP_DIR
+              ln -sfn $BACKUP_DIR ~/mlapp-backup
             else
               echo "ℹ️ No existing app found to backup."
             fi
@@ -90,10 +89,10 @@ jobs:
         run: |
           echo "❌ Health check failed. Attempting rollback..."
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
-            if [ -d ~/mlapp-backup ]; then
-              echo "🔁 Restoring from backup..."
+            if [ -L ~/mlapp-backup ] && [ -d $(readlink -f ~/mlapp-backup) ]; then
+              echo "🔁 Restoring from latest backup..."
               rm -rf ~/mlapp
-              mv ~/mlapp-backup ~/mlapp
+              cp -r $(readlink -f ~/mlapp-backup) ~/mlapp
 
               echo "🛑 Killing app on port 5000..."
               PID=$(lsof -t -i:5000) && kill -9 $PID || echo "No app running"
@@ -108,6 +107,6 @@ jobs:
                 && echo "✅ Rollback succeeded" \
                 || echo "❌ Rollback health check failed"
             else
-              echo "🚫 No backup found. Manual recovery required."
+              echo "🚫 No valid backup found. Manual recovery required."
             fi
           '
