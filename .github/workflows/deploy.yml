@@ -1,4 +1,4 @@
-name: Deploy Flask ML App with Health Check (with Rollback)
+name: Deploy Flask ML App with Health Check (Single Backup)
 
 on:
   push:
@@ -19,15 +19,13 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      - name: 🧰 Backup Existing App on EC2 (timestamped)
+      - name: 🧰 Backup Existing App on EC2 (overwrite always)
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} '
             if [ -d ~/mlapp ]; then
-              TIMESTAMP=veera
-              BACKUP_DIR=~/mlapp-backup-$TIMESTAMP
-              echo "📁 Creating backup at $BACKUP_DIR"
-              cp -r ~/mlapp $BACKUP_DIR
-              ln -sfn $BACKUP_DIR ~/mlapp-backup
+              echo "🔁 Backing up to ~/mlapp-backup (overwriting if exists)"
+              rm -rf ~/mlapp-backup
+              cp -r ~/mlapp ~/mlapp-backup
             else
               echo "ℹ️ No existing app found to backup."
             fi
@@ -89,10 +87,10 @@ jobs:
         run: |
           echo "❌ Health check failed. Attempting rollback..."
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
-            if [ -L ~/mlapp-backup ] && [ -d $(readlink -f ~/mlapp-backup) ]; then
-              echo "🔁 Restoring from latest backup..."
+            if [ -d ~/mlapp-backup ]; then
+              echo "🔁 Restoring from backup..."
               rm -rf ~/mlapp
-              cp -r $(readlink -f ~/mlapp-backup) ~/mlapp
+              cp -r ~/mlapp-backup ~/mlapp
 
               echo "🛑 Killing app on port 5000..."
               PID=$(lsof -t -i:5000) && kill -9 $PID || echo "No app running"
@@ -107,6 +105,6 @@ jobs:
                 && echo "✅ Rollback succeeded" \
                 || echo "❌ Rollback health check failed"
             else
-              echo "🚫 No valid backup found. Manual recovery required."
+              echo "🚫 No backup found. Manual recovery required."
             fi
           '
