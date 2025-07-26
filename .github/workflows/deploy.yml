@@ -19,15 +19,18 @@ jobs:
         with:
           ssh-private-key: ${{ secrets.EC2_SSH_KEY }}
 
-      - name: 🧰 Backup Existing App on EC2
+      - name: 🧰 Backup Existing App on EC2 (Only if not already backed up)
         run: |
           ssh -o StrictHostKeyChecking=no ec2-user@${{ secrets.EC2_HOST }} '
             if [ -d ~/mlapp ]; then
-              echo "📁 Backing up ~/mlapp to ~/mlapp-backup"
-              rm -rf ~/mlapp-backup
-              cp -r ~/mlapp ~/mlapp-backup
+              if [ ! -d ~/mlapp-backup ]; then
+                echo "📁 Creating initial backup as ~/mlapp-backup"
+                cp -r ~/mlapp ~/mlapp-backup
+              else
+                echo "⚠️ Backup already exists. Keeping previous backup safe."
+              fi
             else
-              echo "ℹ️ No existing app to backup"
+              echo "ℹ️ No existing app found to backup."
             fi
           '
 
@@ -54,8 +57,8 @@ jobs:
       - name: 🚀 Stop Old Flask App and Start New
         run: |
           ssh -tt ec2-user@${{ secrets.EC2_HOST }} '
-            echo "🛑 Stopping app on port 5000..."
-            PID=$(lsof -t -i:5000) && kill -9 $PID || echo "No running app"
+            echo "🛑 Killing app on port 5000..."
+            PID=$(lsof -t -i:5000) && kill -9 $PID || echo "No app running on port 5000"
 
             echo "🚀 Starting Flask app..."
             cd ~/mlapp
@@ -92,8 +95,8 @@ jobs:
               rm -rf ~/mlapp
               mv ~/mlapp-backup ~/mlapp
 
-              echo "🛑 Killing app (port 5000)..."
-              PID=$(lsof -t -i:5000) && kill -9 $PID || echo "No app to kill"
+              echo "🛑 Killing app on port 5000..."
+              PID=$(lsof -t -i:5000) && kill -9 $PID || echo "No app running"
 
               echo "🚀 Restarting backup app..."
               cd ~/mlapp
@@ -105,6 +108,6 @@ jobs:
                 && echo "✅ Rollback succeeded" \
                 || echo "❌ Rollback health check failed"
             else
-              echo "🚫 No backup found to rollback."
+              echo "🚫 No backup found. Manual recovery required."
             fi
           '
